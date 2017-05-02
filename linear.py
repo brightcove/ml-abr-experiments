@@ -14,11 +14,11 @@ y = tf.matmul(x, W) + b
 # -- training --
 # label data
 y_ = tf.placeholder(tf.float32, [None, 1], 'y_')
-cross_entropy = tf.reduce_mean(tf.squared_difference(y_, y))
-# cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(labels=y_, logits=y)
+error = tf.reduce_mean(tf.squared_difference(y_, y))
+# error = tf.nn.sigmoid_cross_entropy_with_logits(labels=y_, logits=y)
 # tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y))
 # tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(y), reduction_indices=[1]))
-train_step = tf.train.GradientDescentOptimizer(0.0002).minimize(cross_entropy)
+optimizer = tf.train.GradientDescentOptimizer(0.0002).minimize(error)
 
 session = tf.InteractiveSession()
 tf.global_variables_initializer().run()
@@ -26,15 +26,15 @@ tf.global_variables_initializer().run()
 # visualization
 tf.summary.tensor_summary('y', y)
 tf.summary.tensor_summary('W', W)
-tf.summary.histogram('W histogram', W)
+tf.summary.histogram('W_histogram', W)
 tf.summary.tensor_summary('b', b)
-tf.summary.histogram('b histogram', b)
-tf.summary.tensor_summary('error', cross_entropy)
+tf.summary.histogram('b_histogram', b)
+tf.summary.tensor_summary('error', error)
 merged = tf.summary.merge_all()
 summary_writer = tf.summary.FileWriter('./linear.log', session.graph)
 
 for i in range(10000):
-    summary, c_e, y0, w0, b0, _ = session.run([merged, cross_entropy, y, W, b, train_step], feed_dict={
+    summary, c_e, y0, w0, b0, _ = session.run([merged, error, y, W, b, optimizer], feed_dict={
         x: [[1, 2, 3],
              [4, 5, 6],
              [22, 23, 24]],
@@ -50,11 +50,10 @@ print(session.run(y, feed_dict={
         [4, 5, 6],
         [22, 23, 24],
         [78, 79, 80],
-        [101, 111, 121]],
-    y_: [[4], [7], [25], [81], [131]]
-    # x: [[11, 12, 13],
-    #     [19, 20, 21],
-    #     [-1, 0, 1]],
-    # y_: [[14], [22], [2]]
+        [101, 111, 121],
+        [11, 12, 13],
+        [19, 20, 21],
+        [-1, 0, 1]],
+    y_: [[4], [7], [25], [81], [131], [14], [22], [2]]
 }))
 
