@@ -25,6 +25,7 @@ def dynamic_index(outputs, sequence_length):
     stacked = tf.stack(outputs)
     transposed = tf.transpose(stacked, [1, 0, 2])
     batch_size = tf.shape(transposed)[0]
+    last_dimension = tf.shape(transposed)[2]
 
     # our network produces one output for every bitrate sample in input
     # since the number of samples in each input is variable, we have
@@ -34,7 +35,7 @@ def dynamic_index(outputs, sequence_length):
     # reshaped has shape [batch_size * MAX_SAMPLES, NUM_UNITS] and we
     # use index to pick out the output corresponding to
     # sequence_length for each input
-    reshaped = tf.reshape(transposed, [-1, NUM_UNITS])
+    reshaped = tf.reshape(transposed, [-1, last_dimension])
     return tf.gather(reshaped, index)
 
 def parse_input(file_path):
@@ -51,8 +52,16 @@ def parse_input(file_path):
     bitrate_inputs = []
     inputs_length = []
     bitrate_labels = []
+
+    i = 0
+
     with open(file_path, 'r') as file:
         for line in file:
+
+            i += 1
+            if (i > 1000):
+                break
+
             samples = map(lambda x: [float(x) * bps_to_MBps], line.strip().split(' '))[0:MAX_SAMPLES + 1]
             if (len(samples) < 2):
                 # skip lines without enough samples
@@ -113,6 +122,8 @@ outputs, states = tf.contrib.rnn.static_rnn(lstm,
 y = tf.matmul(dynamic_index(outputs, sequence_length), weights) + biases
 y_ = tf.placeholder(tf.float32, [None, 1], 'y_')
 error = tf.reduce_mean(tf.squared_difference(y_, y))
+baseline_y = dynamic_index(tf.transpose(x, [1, 0, 2]), sequence_length)
+baseline_error = tf.reduce_mean(tf.squared_difference(y_, baseline_y))
 optimizer = tf.train.AdamOptimizer().minimize(error)
 
 session = tf.InteractiveSession()
@@ -129,7 +140,6 @@ if (arguments.training_mode):
         print 'Error reading training file'
         sys.exit(1)
 
-    print 'x: %s\nsequence_length: %s\ny_: %s' % (training_x[0:5], training_length[0:5], training_y_[0:5])
     print 'Training...'
     session.run(optimizer, feed_dict={
         x: training_x,
@@ -153,7 +163,7 @@ except IOError:
     sys.exit(1)
 
 print 'Validating...'
-prediction, actual, mean_error = session.run([y, y_, error], feed_dict={
+prediction, baseline, actual, mean_error, mean_baseline = session.run([y, baseline_y, y_, error, baseline_error], feed_dict={
     # x: [[[1], [2], [3], [-1]],
     #     [[4], [5], [6], [-1]],
     #     [[22], [23], [24], [-1]],
@@ -176,7 +186,10 @@ prediction, actual, mean_error = session.run([y, y_, error], feed_dict={
 })
 
 print '--- Results ---'
-print 'Overall Error: %f' % mean_error
+print 'Overall Error: %f, Baseline Error: %f' % (mean_error, mean_baseline)
 sample_indices = sorted(random.sample(xrange(len(prediction)), 10))
+print 'Sampled Predictions:'
+print 'Predicted   Baseline     Actual       Diff  Base Diff'
 for i in sample_indices:
-    print 'predicted: %.1f, actual: %.1f, difference: %.1f' % (prediction[i], actual[i], actual[i] - prediction[i])
+    print '%9.2f %10.2f %10.2f %10.2f %10.2f' % (prediction[i], baseline[i], actual[i], actual[i] - prediction[i], actual[i] - baseline[i])
+print '(Values are in megabytes per second)'
