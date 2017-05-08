@@ -9,8 +9,9 @@ import fileinput
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-NUM_UNITS = 30
-MAX_SAMPLES = 4
+BATCH_SIZE = 128
+NUM_UNITS = 512
+MAX_SAMPLES = 20
 SAMPLES_PER_STEP = 1
 bps_to_MBps = 1 / (8.0 * 1024 * 1024)
 
@@ -53,15 +54,8 @@ def parse_input(file_path):
     inputs_length = []
     bitrate_labels = []
 
-    i = 0
-
     with open(file_path, 'r') as file:
         for line in file:
-
-            i += 1
-            if (i > 1000):
-                break
-
             samples = map(lambda x: [float(x) * bps_to_MBps], line.strip().split(' '))[0:MAX_SAMPLES + 1]
             if (len(samples) < 2):
                 # skip lines without enough samples
@@ -114,6 +108,7 @@ weights = tf.Variable(tf.random_normal([NUM_UNITS, 1]))
 biases = tf.Variable(tf.random_normal([1]))
 
 lstm = tf.contrib.rnn.BasicLSTMCell(NUM_UNITS)
+# lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(NUM_UNITS) for i in range(3)])
 outputs, states = tf.contrib.rnn.static_rnn(lstm,
                                             tf.unstack(x, MAX_SAMPLES, SAMPLES_PER_STEP),
                                             sequence_length=sequence_length,
@@ -125,10 +120,15 @@ error = tf.reduce_mean(tf.squared_difference(y_, y))
 baseline_y = dynamic_index(tf.transpose(x, [1, 0, 2]), sequence_length)
 baseline_error = tf.reduce_mean(tf.squared_difference(y_, baseline_y))
 optimizer = tf.train.AdamOptimizer().minimize(error)
+# optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001).minimize(error)
 
 session = tf.InteractiveSession()
 tf.global_variables_initializer().run()
 saver = tf.train.Saver()
+
+tf.summary.scalar('error', error)
+merged_summaries = tf.summary.merge_all()
+summary_writer = tf.summary.FileWriter('lstm_log', session.graph)
 
 # -- training --
 if (arguments.training_mode):
@@ -141,11 +141,14 @@ if (arguments.training_mode):
         sys.exit(1)
 
     print 'Training...'
-    session.run(optimizer, feed_dict={
-        x: training_x,
-        sequence_length: training_length,
-        y_: training_y_
-    })
+    for i in range(0, len(training_x), BATCH_SIZE):
+        _, summary = session.run([optimizer, merged_summaries], feed_dict={
+            x: training_x[i:i + BATCH_SIZE],
+            sequence_length: training_length[i:i + BATCH_SIZE],
+            y_: training_y_[i:i + BATCH_SIZE]
+        })
+        summary_writer.add_summary(summary, i)
+
 
     # save the trained network to disk
     saver.save(session, arguments.output_file)
